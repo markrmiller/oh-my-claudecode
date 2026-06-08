@@ -109,6 +109,22 @@ describe('keyword-detector.mjs mode-message dispatch', () => {
     expect(state.awaiting_confirmation).toBe(true);
   });
 
+  it('does not activate ultragoal for a descriptive "when i use ultragoal" mention', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'keyword-detector-ultragoal-info-'));
+    const sessionId = 'session-ultragoal-info';
+    const output = runKeywordDetector(
+      'sometimes when i use ultragoal to create durable goals, at the end it tells me the /goal command to run like: /goal Complete all 16 ultragoal stories. But often it does not.',
+      cwd,
+      sessionId,
+    );
+    const context = output.hookSpecificOutput?.additionalContext ?? '';
+    const ultragoalStatePath = join(cwd, '.omc', 'state', 'sessions', sessionId, 'ultragoal-state.json');
+
+    expect(output.continue).toBe(true);
+    expect(context).not.toContain('[MAGIC KEYWORD: ULTRAGOAL]');
+    expect(existsSync(ultragoalStatePath)).toBe(false);
+  });
+
   it('launches the approved Team follow-up instead of re-entering ralplan when OMX planning artifacts already exist', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'keyword-detector-ralplan-followup-'));
     const sessionId = 'session-2714-followup';

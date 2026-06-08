@@ -622,6 +622,27 @@ export function buildClaudeGoalInstruction(goal, plan) {
         return buildAggregateClaudeGoalInstruction(goal, plan);
     return buildPerStoryClaudeGoalInstruction(goal, plan);
 }
+/**
+ * Create-time Claude /goal handoff. Printed right after `create-goals` so the
+ * literal `/goal <objective>` line is ALWAYS emitted at plan creation — not left
+ * to the model remembering to run `next` and compose the slash command. Aggregate
+ * mode only: per-story plans set their /goal per story via `next`.
+ */
+export function buildClaudeGoalSetupHandoff(plan) {
+    if (claudeGoalMode(plan) !== 'aggregate')
+        return '';
+    const objective = plan.claudeObjective ?? aggregateClaudeObjective(plan.goals, plan.planId);
+    if (!objective.trim())
+        return '';
+    return [
+        'ACTION REQUIRED — set the durable Claude /goal for this ultragoal run.',
+        'Run this exact slash command in your Claude session now, and surface it to the user verbatim:',
+        '',
+        `/goal ${objective}`,
+        '',
+        'Keep this /goal active for the whole run; when every story is complete and the final quality gate passes, run /oh-my-claudecode:cancel.',
+    ].join('\n');
+}
 function buildPerStoryClaudeGoalInstruction(goal, plan) {
     const createPayload = {
         condition: goal.objective,
@@ -629,6 +650,10 @@ function buildPerStoryClaudeGoalInstruction(goal, plan) {
     };
     const finalStory = isFinalRunCompletionCandidate(plan, goal);
     return [
+        '>>> ACTION REQUIRED — set the Claude /goal for this story. Run this exact slash command in your Claude session and surface it to the user verbatim:',
+        '',
+        `/goal ${goal.objective}`,
+        '',
         'Ultragoal active-goal handoff',
         `Plan: ${plan.goalsPath}`,
         `Ledger: ${plan.ledgerPath}`,
@@ -673,6 +698,10 @@ function buildAggregateClaudeGoalInstruction(goal, plan) {
     const createPayload = { condition: objective };
     const checkpointStatus = finalStory ? 'complete' : 'active';
     return [
+        '>>> ACTION REQUIRED — set the durable Claude /goal for this run. Run this exact slash command in your Claude session and surface it to the user verbatim:',
+        '',
+        `/goal ${objective}`,
+        '',
         'Ultragoal aggregate-goal handoff',
         `Plan: ${plan.goalsPath}`,
         `Ledger: ${plan.ledgerPath}`,

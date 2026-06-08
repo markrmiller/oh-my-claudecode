@@ -736,6 +736,45 @@ function extractClaudeGoalSnapshot(data) {
 }
 
 
+// CHANGE 4: recover the active Claude /goal from the transcript. This harness
+// does NOT put the active /goal in the hook payload, so extractClaudeGoalSnapshot
+// is always null; the /goal slash command instead writes a user message:
+//   <local-command-stdout>Goal set: <objective></local-command-stdout>
+// Scan for the LAST "Goal set: <objective>" and honor a later clear/unset/removed.
+function readGoalFromTranscript(transcriptPath) {
+  if (!transcriptPath) return null;
+  let raw;
+  try {
+    raw = readFileSync(transcriptPath, 'utf-8');
+  } catch {
+    return null;
+  }
+  const setRe = /Goal set:\s*([^\n<]+)/g;
+  const clearRe = /Goal (?:cleared|unset|removed)\b/i;
+  let lastObjective = null;
+  let cleared = false;
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let text = line;
+    try {
+      text = JSON.stringify(JSON.parse(line));
+    } catch {
+      // not JSON — scan the raw line as-is
+    }
+    setRe.lastIndex = 0;
+    let m;
+    let foundSet = false;
+    while ((m = setRe.exec(text)) !== null) {
+      lastObjective = m[1].trim();
+      foundSet = true;
+    }
+    if (foundSet) cleared = false;
+    if (clearRe.test(text)) cleared = true;
+  }
+  if (cleared || !lastObjective) return null;
+  return { objective: lastObjective, status: 'active' };
+}
+
 function isUltragoalBootstrapTool(toolName, toolInput) {
   if (toolName === 'Skill' && extractSkillName(toolInput) === 'ultragoal') return true;
   if (toolName !== 'Bash') return false;
@@ -743,11 +782,28 @@ function isUltragoalBootstrapTool(toolName, toolInput) {
   return /(?:^|[;&|\s])(?:omc|oh-my-claudecode)\s+ultragoal\s+(?:create(?:-goals)?|create-goals|complete(?:-goals)?|complete-goals|next|start-next|status)\b/.test(command);
 }
 
+function isUltragoalEscapeHatchTool(toolName, toolInput) {
+  // Allow the documented cancel path to run even while the guard is active,
+  // otherwise a stray activation deadlocks (cancel needs ToolSearch + state tools).
+  if (toolName === 'ToolSearch') return true;
+  if (toolName === 'Skill' && extractSkillName(toolInput) === 'cancel') return true;
+  if (/(?:^|_)state_(?:clear|read|write|list_active|get_status)$/.test(toolName)) return true;
+  if (toolName === 'Bash') {
+    const command = typeof toolInput.command === 'string' ? toolInput.command : '';
+    // cancel's bash fallback removes ultragoal/skill-active state files
+    if (/state_clear/.test(command)) return true;
+    if (/\brm\b[^\n]*(?:ultragoal|skill-active-state|cancel-signal|\.omc\/state)/.test(command)) return true;
+    if (/oh-my-claudecode:cancel/.test(command)) return true;
+  }
+  return false;
+}
+
 function evaluateUltragoalPreToolEnforcement(stateDir, directory, sessionId, data) {
   if (process.env.ALLOW_ULTRAGOAL_WITHOUT_GOAL === '1') return null;
   const toolName = data.tool_name || data.toolName || '';
   const toolInput = data.toolInput || data.tool_input || {};
   if (isUltragoalBootstrapTool(toolName, toolInput)) return null;
+  if (isUltragoalEscapeHatchTool(toolName, toolInput)) return null;
   const loaded = readSessionModeState(stateDir, 'ultragoal', sessionId);
   const state = loaded.state;
   if (!state?.active) return null;
@@ -756,7 +812,17 @@ function evaluateUltragoalPreToolEnforcement(stateDir, directory, sessionId, dat
   if (isUltragoalTerminalState(state, directory)) return null;
 
   const expected = getExpectedUltragoalObjective(state, directory);
-  const actual = extractClaudeGoalSnapshot(data);
+  // Defense-in-depth: with no derivable objective AND no real plan, there is
+  // nothing a Claude /goal could match, so enforcing would wedge the session
+  // behind an un-satisfiable guard (the message would only show a placeholder).
+  // A bare/spurious activation must not be able to block tools.
+  if (!normalizeText(expected)) return null;
+  let actual = extractClaudeGoalSnapshot(data);
+  if (!actual) {
+    // CHANGE 4: fall back to the transcript — the only durable /goal record here.
+    const rawTranscriptPath = data.transcript_path || data.transcriptPath || '';
+    actual = readGoalFromTranscript(resolveTranscriptPath(rawTranscriptPath, directory));
+  }
   const actualObjective = normalizeText(actual?.objective);
   const expectedObjective = normalizeText(expected);
   const status = normalizePhase(actual?.status);
@@ -1409,6 +1475,34 @@ async function main() {
       if (preflightBlock) {
         console.log(JSON.stringify(preflightBlock));
         return;
+      }
+    }
+
+    // CHANGE 5: redirect OMC's scoped agent calls to a project-local override.
+    // OMC invokes its agents as oh-my-claudecode:<name>, which always resolves to the
+    // bundled prompt (the scoped id is not shadowed by a project agent). When the
+    // current project ships a native override at .claude/agents/<name>.md, rewrite
+    // subagent_type to the bare <name> so Claude Code's project-scope precedence picks
+    // the override. Per-project (keyed on cwd); no global plugin edit. Runs after the
+    // ultragoal / model-routing / preflight guards so none of them are bypassed.
+    if (toolName === 'Task' || toolName === 'Agent') {
+      const agentToolInput = data.toolInput || data.tool_input || {};
+      const scopedType = typeof agentToolInput.subagent_type === 'string' ? agentToolInput.subagent_type : '';
+      const scopedMatch = scopedType.match(/^oh-my-claudecode:([a-z0-9-]+)$/i);
+      if (scopedMatch) {
+        const bareName = scopedMatch[1];
+        if (existsSync(join(directory, '.claude', 'agents', `${bareName}.md`))) {
+          console.log(JSON.stringify({
+            continue: true,
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+              permissionDecisionReason: `[OMC AGENT OVERRIDE] Routing to project agent "${bareName}" (.claude/agents/${bareName}.md).`,
+              updatedInput: { ...agentToolInput, subagent_type: bareName },
+            },
+          }));
+          return;
+        }
       }
     }
 

@@ -8,6 +8,9 @@ node_modules/
 .idea/
 .claude/
 
+# Serena MCP local cache/config — machine-specific, never commit
+.serena/
+
 # Windows reserved names (prevent accidental creation)
 nul
 NUL

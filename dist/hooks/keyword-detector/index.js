@@ -6,23 +6,24 @@
  *
  * Ported from oh-my-opencode's keyword-detector hook.
  */
+import { join } from 'node:path';
 import { classifyTaskSize, isHeavyMode, } from '../task-size-detector/index.js';
 /**
  * Keyword patterns for each mode
  */
 const KEYWORD_PATTERNS = {
     cancel: /\b(cancelomc|stopomc)\b/i,
-    ralph: /\b(ralph)\b(?!-)|(랄프)(?!로렌)/i,
-    autopilot: /\b(autopilot|auto[\s-]?pilot|fullsend|full\s+auto)\b|(오토파일럿)/i,
-    ultrawork: /\b(ultrawork|ulw)\b|(울트라워크)/i,
+    ralph: /\b(ralph)\b(?!-)|(랄프)(?!로렌)|(ラルフ)(?!・?ローレン)/i,
+    autopilot: /\b(autopilot|auto[\s-]?pilot|fullsend|full\s+auto)\b|(오토파일럿)|(オートパイロット)/i,
+    ultrawork: /\b(ultrawork|ulw)\b|(울트라워크)|(ウルトラワーク)/i,
     // Team keyword detection disabled — team mode is now explicit-only via /team skill.
     // This prevents infinite spawning when Claude workers receive prompts containing "team".
     team: /(?!x)x/, // never-match placeholder (type system requires the key)
-    ralplan: /\b(ralplan)\b|(랄플랜)/i,
+    ralplan: /\b(ralplan)\b|(랄플랜)|(ラルプラン)/i,
     tdd: /\b(tdd)\b|\btest\s+first\b|(테스트\s?퍼스트)/i,
     'code-review': /\b(code\s+review|review\s+code)\b|(코드\s?리뷰)(?!어)/i,
     'security-review': /\b(security\s+review|review\s+security)\b|(보안\s?리뷰)(?!어)/i,
-    ultrathink: /\b(ultrathink)\b|(울트라씽크)/i,
+    ultrathink: /\b(ultrathink)\b|(울트라씽크)|(ウルトラシンク)/i,
     deepsearch: /\b(deepsearch)\b|\bsearch\s+the\s+codebase\b|\bfind\s+in\s+(the\s+)?codebase\b|(딥\s?서치)/i,
     analyze: /\b(deep[\s-]?analyze|deepanalyze)\b|(딥\s?분석)/i,
     'deep-interview': /\b(deep[\s-]interview|ouroboros)\b|(딥인터뷰)/i,
@@ -58,6 +59,17 @@ const KEYWORD_PRIORITY = [
     'ccg', 'ralplan', 'tdd', 'code-review', 'security-review',
     'ultrathink', 'deepsearch', 'analyze', 'deep-interview', 'codex', 'gemini'
 ];
+/**
+ * CHANGE 2: persistent-STATE-creating modes that must not auto-activate from a
+ * pasted system echo unless explicitly slash-invoked. Each keyword type name
+ * doubles as the slash-command name for isExplicitModeSlashInvocation().
+ */
+const STATE_MODE_KEYWORDS = new Set([
+    'ralph',
+    'autopilot',
+    'ultrawork',
+    'ralplan',
+]);
 /**
  * Canonical workflow skills detected via explicit slash invocation.
  * Mirrors `CANONICAL_WORKFLOW_SKILLS` in `skill-state/index.ts`. Listed here
@@ -127,6 +139,138 @@ export function removeCodeBlocks(text) {
     // Remove inline code (single backticks)
     result = result.replace(/`[^`]+`/g, '');
     return result;
+}
+// CHANGE 2: signature lines indicating the text is predominantly a system echo
+// (hook output pasted back into a prompt). Mirrors SYSTEM_ECHO_SIGNATURES in the
+// runtime keyword-detector.mjs.
+const SYSTEM_ECHO_SIGNATURES = [
+    /\bWhen FULLY complete \(after Architect verification\)\b/i,
+    /\brun\s+\/oh-my-claudecode:cancel\b/i,
+    /\[RALPH LOOP\s*-\s*ITERATION\b/i,
+];
+// CHANGE 2: block headers that hook output emits. Presence of any of these makes
+// us treat the prompt as a pasted system echo. Mirrors SYSTEM_ECHO_BLOCK_PATTERNS
+// in keyword-detector.mjs (matched as single lines here, without continuation).
+const SYSTEM_ECHO_BLOCK_HEADERS = [
+    /^[ \t]*\[RALPH LOOP\s*-\s*ITERATION[^\]\n]*\]/im,
+    /^[ \t]*\[RALPH LOOP\s*-\s*(?:HARD LIMIT|EXTENDED)\]/im,
+    /^[ \t]*\[TEAM\s*-\s*Phase:[^\]\n]*\]/im,
+    /^[ \t]*\[AUTOPILOT[^\]\n]*\]/im,
+    /^[ \t]*\[ULTRAPILOT[^\]\n]*\]/im,
+    /^[ \t]*\[ULTRAWORK[^\]\n]*\]/im,
+    /^[ \t]*\[ULTRAQA[^\]\n]*\]/im,
+    /^[ \t]*\[PIPELINE[^\]\n]*\]/im,
+    /^[ \t]*\[SWARM[^\]\n]*\]/im,
+    /^[ \t]*\[TOOL ERROR[^\]\n]*\]/im,
+    /^[ \t]*\[MAGIC KEYWORD:[^\]\n]*\]/im,
+    /^[ \t]*\[MAGIC KEYWORDS DETECTED:[^\]\n]*\]/im,
+    /^[ \t]*Stop hook (?:blocking error|feedback|stopped continuation)/im,
+    /^[ \t]*PreToolUse:[^\n]*hook additional context:/im,
+    /^[ \t]*PostToolUse:[^\n]*hook additional context:/im,
+];
+/**
+ * CHANGE 2: returns true when the prompt as a whole looks like a pasted system
+ * echo / transcript (a copied hook-output block). Mirrors looksLikeSystemEcho()
+ * in keyword-detector.mjs so state-creating modes do not auto-activate from
+ * pasted logs.
+ */
+export function looksLikeSystemEcho(text) {
+    if (typeof text !== 'string' || text.length === 0)
+        return false;
+    if (SYSTEM_ECHO_SIGNATURES.some((pattern) => pattern.test(text)))
+        return true;
+    return SYSTEM_ECHO_BLOCK_HEADERS.some((pattern) => pattern.test(text));
+}
+// CHANGE 2: continuation lines that hook output emits directly after a block
+// header. Mirrors ECHO_CONTINUATION in keyword-detector.mjs.
+const ECHO_CONTINUATION = '(?:\\r?\\n[ \\t]*(?:Task:\\s|When FULLY complete \\(after Architect verification\\)|run\\s+\\/oh-my-claudecode:cancel).*)*';
+// CHANGE 2: full echo BLOCKS (header line + trailing continuation lines).
+// Mirrors SYSTEM_ECHO_BLOCK_PATTERNS in keyword-detector.mjs; used by
+// stripSystemEchoes to remove pasted hook output while preserving any genuine
+// trailing request.
+const SYSTEM_ECHO_BLOCK_PATTERNS = [
+    '\\[RALPH LOOP\\s*-\\s*ITERATION[^\\]\\n]*\\]',
+    '\\[RALPH LOOP\\s*-\\s*(?:HARD LIMIT|EXTENDED)\\]',
+    '\\[TEAM\\s*-\\s*Phase:[^\\]\\n]*\\]',
+    '\\[AUTOPILOT[^\\]\\n]*\\]',
+    '\\[ULTRAPILOT[^\\]\\n]*\\]',
+    '\\[ULTRAWORK[^\\]\\n]*\\]',
+    '\\[ULTRAQA[^\\]\\n]*\\]',
+    '\\[PIPELINE[^\\]\\n]*\\]',
+    '\\[SWARM[^\\]\\n]*\\]',
+    '\\[TOOL ERROR[^\\]\\n]*\\]',
+    '\\[MAGIC KEYWORD:[^\\]\\n]*\\]',
+    '\\[MAGIC KEYWORDS DETECTED:[^\\]\\n]*\\]',
+    'Stop hook (?:blocking error|feedback|stopped continuation)',
+    'PreToolUse:[^\\n]*hook additional context:',
+    'PostToolUse:[^\\n]*hook additional context:',
+].map((headerBody) => new RegExp(`^[ \\t]*${headerBody}.*${ECHO_CONTINUATION}$`, 'gim'));
+/**
+ * CHANGE 2: remove recognized echo blocks, leaving any genuine surrounding text.
+ * Mirrors stripSystemEchoes() in keyword-detector.mjs so the activation gate can
+ * tell a pure paste (suppress) from "<echo> + real request" (still activate).
+ */
+export function stripSystemEchoes(text) {
+    if (typeof text !== 'string' || text.length === 0)
+        return '';
+    let cleaned = text;
+    for (const pattern of SYSTEM_ECHO_BLOCK_PATTERNS) {
+        cleaned = cleaned.replace(pattern, ' ');
+    }
+    return cleaned;
+}
+/**
+ * CHANGE 2: explicit, prompt-LEADING slash invocation for a given mode. Anchored
+ * to start-of-prompt (no `m` flag) so a slash command quoted on an interior
+ * log/transcript line does NOT count as an explicit invocation.
+ */
+export function isExplicitModeSlashInvocation(prompt, mode) {
+    const re = new RegExp(`^\\s*/(?:oh-my-claudecode:)?${mode}(?:\\s|$)`, 'i');
+    return re.test(prompt);
+}
+// CHANGE 3 (skills): project-local OMC skill overrides load FIRST and win over
+// the bundled OMC skills of the same name. They live under
+// {root}/.claude/omc-skills/{name}/SKILL.md (OUTSIDE .claude/skills on purpose,
+// so Claude Code does not also load them as native skills) and are steered to via
+// the UNQUALIFIED /<skill> slash form. This mirrors the precedence implemented in
+// the runtime keyword-detector.mjs. NOTE: the live skill-invocation emission path
+// is the .mjs hook; these helpers port the same precedence into the TS source for
+// any TS consumer that resolves skill paths.
+/** Project roots that may carry OMC skill overrides. */
+export function getProjectOverrideRoots() {
+    return [...new Set([
+            process.env.CLAUDE_PROJECT_DIR,
+            process.env.PWD,
+            process.cwd(),
+        ].filter((root) => Boolean(root)))];
+}
+/**
+ * Skill-path candidates in precedence order: project `.claude/omc-skills`
+ * overrides FIRST, then bundled plugin `skills/` roots.
+ */
+export function getSkillPathCandidates(skillName) {
+    const projectCandidates = getProjectOverrideRoots().map((root) => join(root, '.claude', 'omc-skills', skillName, 'SKILL.md'));
+    const pluginRoots = [
+        process.env.CLAUDE_PLUGIN_ROOT,
+        process.cwd(),
+    ].filter((root) => Boolean(root));
+    const pluginCandidates = pluginRoots.map((root) => join(root, 'skills', skillName, 'SKILL.md'));
+    return [...new Set([...projectCandidates, ...pluginCandidates])];
+}
+/**
+ * A resolved skill is a project override when it lives under
+ * {root}/.claude/omc-skills/. Such skills resolve via the UNQUALIFIED slash form.
+ */
+export function isProjectSkillPath(skillPath) {
+    return typeof skillPath === 'string' && skillPath.includes(join('.claude', 'omc-skills'));
+}
+/**
+ * Preferred slash-invocation for a skill: the UNQUALIFIED `/<skill>` form for
+ * project overrides (so Claude Code resolves the project entry), otherwise the
+ * plugin-scoped `/oh-my-claudecode:<skill>` form.
+ */
+export function preferredSkillInvocation(skillName, skillPath) {
+    return isProjectSkillPath(skillPath) ? `/${skillName}` : `/oh-my-claudecode:${skillName}`;
 }
 const PASTED_MAGIC_KEYWORD_HEADER_PATTERN = /^\s*\[MAGIC KEYWORDS?(?: DETECTED)?:.*$/i;
 const ROLE_BOUNDARY_PATTERN = /^<\s*\/?\s*(system|human|assistant|user|tool_use|tool_result)\b[^>]*>/i;
@@ -266,7 +410,7 @@ export function sanitizeForKeywordDetection(text) {
 const INFORMATIONAL_INTENT_PATTERNS = [
     /\b(?:what(?:'s|\s+is)|what\s+are|how\s+(?:to|do\s+i)\s+use|explain|explanation|tell\s+me\s+about|describe)\b/i,
     /(?:뭐야|뭔데|무엇(?:이야|인가요)?|어떻게|설명(?!서\s*(?:작성|만들|생성|추가|업데이트|수정|편집|쓰))|사용법|알려\s?줘|알려줄래|소개해?\s?줘|소개\s*부탁|설명해\s?줘|뭐가\s*달라|어떤\s*기능|기능\s*(?:알려|설명|뭐)|방법\s*(?:알려|설명|뭐))/u,
-    /(?:とは|って何|使い方|説明)/u,
+    /(?:とは|って何|使い方|説明|(?:について|に関して)[^\n]{0,24}(?:教えて|説明|知りたい))/u,
     /(?:什么是|怎(?:么|樣)用|如何使用|解释|說明|说明)/u,
 ];
 const INFORMATIONAL_CONTEXT_WINDOW = 80;
@@ -340,7 +484,10 @@ function hasActivationIntentNearKeyword(context, keyword) {
         return false;
     }
     const patterns = [
-        new RegExp(`\\b(?:use|run|start|enable|activate|invoke|trigger|launch)\\b[^\\n]{0,28}\\b${escaped}\\b`, 'i'),
+        // Reject descriptive/narrative lead-ins ("when i use X", "the command to run … X",
+        // "how do i use X"): those are not imperative activations. Imperative forms
+        // ("use X", "please run X", "then start X", "can you run X") still match.
+        new RegExp(`(?<!\\b(?:i|we|they|he|she|it|to|when|whenever|if|whether|how|why|that|which|sometimes|often|usually|typically|normally|always|never|rarely|occasionally|generally|frequently)\\s{1,4})\\b(?:use|run|start|enable|activate|invoke|trigger|launch)\\b[^\\n]{0,28}\\b${escaped}\\b`, 'i'),
         new RegExp(`\\b(?:fix|debug|investigate|resolve|handle|patch|address)\\b[^\\n]{0,28}\\b(?:issue|bug|problem|error)\\b[^\\n]{0,12}\\b(?:with|in)\\s+\\b${escaped}\\b`, 'i'),
     ];
     return patterns.some((pattern) => pattern.test(context));
@@ -379,17 +526,20 @@ function hasDiagnosticIntentNearKeyword(context, keyword) {
         new RegExp(`\\b${escaped}\\b[^\\n]{0,48}\\b(?:keeps?\\s+(?:looping|re-?running)|has\\s+(?:a\\s+)?(?:bug|issue|problem|error)|is\\s+(?:stuck|broken|failing)|loop(?:ing)?)\\b`, 'i'),
         new RegExp(`\\b(?:bug|issue|problem|error)\\b[^\\n]{0,16}\\b(?:with|in)\\s+\\b${escaped}\\b`, 'i'),
         new RegExp(`${escaped}.{0,14}(?:자꾸|계속).{0,14}(?:재실행|반복|루프|멈추)`, 'u'),
+        // Japanese: repeated-failure complaint — direct mirror of the Korean 자꾸/계속 line above
+        // (frequency adverb + problem verb). No P2 subject-particle pattern / no work-request escape: Korean parity.
+        new RegExp(`${escaped}[^\\n]{0,16}(?:また|何度も|ずっと|頻繁|繰り返|いつも)[^\\n]{0,16}(?:失敗|エラー|ループ|止ま|落ち|再実行|動かな|フリーズ|壊れ|クラッシュ|こけ|暴走|無限)`, 'u'),
     ];
     return patterns.some((pattern) => pattern.test(context));
 }
 function isRalphUltraworkMetaOrBanterContext(context, keywordText) {
     const normalizedKeyword = keywordText.toLowerCase().replace(/\s+/g, '');
-    if (!['ralph', '랄프', 'ultrawork', 'ulw', 'uw', '울트라워크'].includes(normalizedKeyword)) {
+    if (!['ralph', '랄프', 'ラルフ', 'ultrawork', 'ulw', 'uw', '울트라워크', 'ウルトラワーク'].includes(normalizedKeyword)) {
         return false;
     }
-    const currentKeywordAliases = normalizedKeyword === 'ralph' || normalizedKeyword === '랄프'
-        ? ['랄프']
-        : ['울트라워크'];
+    const currentKeywordAliases = normalizedKeyword === 'ralph' || normalizedKeyword === '랄프' || normalizedKeyword === 'ラルフ'
+        ? ['랄프', 'ラルフ']
+        : ['울트라워크', 'ウルトラワーク'];
     const currentKeywordPattern = currentKeywordAliases.join('|');
     const imperativeVerbPattern = '켜|켜줘|실행|시작|돌려|돌려줘|써|써줘|사용해|진행해';
     const koreanImperativePatterns = [
@@ -524,6 +674,23 @@ export function detectKeywordsWithType(text, _agentName) {
         });
     }
     const cleanedText = sanitizeForKeywordDetection(text);
+    // CHANGE 2: when the prompt as a whole looks like a pasted system echo /
+    // transcript, only allow persistent-STATE-creating modes (ralph, autopilot,
+    // ultrawork, ralplan) to auto-activate via an explicit, prompt-leading slash
+    // invocation. Prevents phantom modes from pasted logs. `text` is the raw,
+    // pre-sanitization prompt (echo blocks are intact here for detection).
+    const promptIsSystemEcho = looksLikeSystemEcho(text);
+    // True superset of upstream echo handling: when the raw prompt looks like a
+    // pasted system echo, still allow activation when a genuine request SURVIVES
+    // echo stripping (non-empty residue that no longer looks like an echo). Only
+    // suppress when stripping leaves nothing genuine, so a messy interleaved paste
+    // can't arm a phantom mode while a real "<echo> + ralph <task>" prompt still
+    // activates.
+    const echoStrippedResidue = stripSystemEchoes(text).trim();
+    const hasGenuineResidualRequest = echoStrippedResidue.length > 0 && !looksLikeSystemEcho(echoStrippedResidue);
+    const allowStateModeActivation = (mode) => !promptIsSystemEcho ||
+        isExplicitModeSlashInvocation(text, mode) ||
+        hasGenuineResidualRequest;
     // Check each keyword type
     for (const type of KEYWORD_PRIORITY) {
         // Team keyword detection disabled — team mode is now explicit-only via /team skill
@@ -533,6 +700,10 @@ export function detectKeywordsWithType(text, _agentName) {
         // Skip the type that the explicit-slash detector already surfaced so we
         // do not emit duplicate entries for the same intent.
         if (explicitSlashType && type === explicitSlashType) {
+            continue;
+        }
+        // CHANGE 2: gate state-creating modes behind the system-echo check.
+        if (STATE_MODE_KEYWORDS.has(type) && !allowStateModeActivation(type)) {
             continue;
         }
         const pattern = KEYWORD_PATTERNS[type];

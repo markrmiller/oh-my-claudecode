@@ -306,6 +306,35 @@ Final draft.`);
         expect(detectKeywordsWithType('랄프 켜').find((r) => r.type === 'ralph')).toBeDefined();
       });
 
+      // CHANGE 2 (system-echo gate, true-superset semantics): a pasted hook echo
+      // must not arm a phantom ralph mode, but a genuine trailing request that
+      // survives echo-stripping must still activate.
+      it('should NOT detect ralph from a bare pasted [RALPH LOOP] echo', () => {
+        const prompt = [
+          '[RALPH LOOP - ITERATION 3/100] Work is NOT done. Continue working.',
+          'When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel to cleanly exit ralph mode and clean up all state files.',
+          'Task: keep iterating on ralph until tests pass',
+        ].join('\n');
+        expect(detectKeywordsWithType(prompt).find((r) => r.type === 'ralph')).toBeUndefined();
+      });
+
+      // NOTE: the nuanced "echo block + genuine trailing NL request DOES activate"
+      // case is .mjs-specific — keyword-detector.mjs matches against echo-stripped
+      // text, while this TS detector matches the full sanitized prompt and defers
+      // to skip-predicates. That activation path is owned by the stock
+      // keyword-detector-echo-guard.test.ts suite against scripts/keyword-detector.mjs.
+      // The TS gate-level superset here is verified by the bare-paste (suppress)
+      // and leading-slash (activate) cases.
+
+      it('should detect ralph when a leading slash invocation precedes a pasted echo', () => {
+        const prompt = [
+          '/ralph fix the parser',
+          '[RALPH LOOP - ITERATION 5/100] Work is NOT done.',
+          'When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel ...',
+        ].join('\n');
+        expect(detectKeywordsWithType(prompt).find((r) => r.type === 'ralph')).toBeDefined();
+      });
+
       it('should NOT detect informational English questions about ralph', () => {
         const result = detectKeywordsWithType('What is ralph and how do I use it?');
         expect(result).toEqual([]);
@@ -318,6 +347,16 @@ Final draft.`);
 
       it('should NOT detect help-style use questions for autopilot', () => {
         expect(detectKeywordsWithType('How do I use autopilot?')).toEqual([]);
+      });
+
+      // The descriptive-lead-in fix ("sometimes when i use <mode> ...") is governed by
+      // hasActivationIntentNearKeyword. Validate the imperative form still activates via
+      // the supported "use autopilot" path (the descriptive ultragoal case is covered
+      // end-to-end by keyword-detector-script.test.ts against the real .mjs surface,
+      // since ultragoal is not a TS-surface KeywordType).
+      it('should STILL detect an imperative "use autopilot" activation', () => {
+        const result = detectKeywordsWithType('use autopilot to fix bug in payments');
+        expect(result.find((r) => r.type === 'autopilot')).toBeDefined();
       });
 
       it('should NOT detect what-is plus how-to-use phrasing for autopilot', () => {

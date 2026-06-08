@@ -48,13 +48,37 @@ function compactHookText(text, maxChars = SKILL_INVOCATION_USER_REQUEST_MAX) {
   return `${text.slice(0, maxChars - notice.length).trimEnd()}${notice}`;
 }
 
+// CHANGE 3: project roots that may carry OMC skill overrides.
+function getProjectOverrideRoots() {
+  return [...new Set([
+    process.env.CLAUDE_PROJECT_DIR,
+    process.env.PWD,
+    process.cwd(),
+  ].filter(Boolean))];
+}
+
 function getSkillPathCandidates(skillName) {
-  const roots = [
+  // CHANGE 3: project-local OMC skill overrides load FIRST and win over bundled:
+  //   {root}/.claude/omc-skills/{name}/SKILL.md
+  const projectCandidates = getProjectOverrideRoots().map(root =>
+    join(root, '.claude', 'omc-skills', skillName, 'SKILL.md'));
+  const pluginRoots = [
     process.env.CLAUDE_PLUGIN_ROOT,
     _omcRoot,
     process.cwd(),
   ].filter(Boolean);
-  return [...new Set(roots.map(root => join(root, 'skills', skillName, 'SKILL.md')))];
+  const pluginCandidates = pluginRoots.map(root => join(root, 'skills', skillName, 'SKILL.md'));
+  return [...new Set([...projectCandidates, ...pluginCandidates])];
+}
+
+// CHANGE 3: a resolved skill is a project override when it lives under
+// {root}/.claude/omc-skills/. Such skills resolve via the UNQUALIFIED slash form.
+function isProjectSkillPath(skillPath) {
+  return typeof skillPath === 'string' && skillPath.includes(join('.claude', 'omc-skills'));
+}
+
+function preferredSkillInvocation(skillName, skillPath) {
+  return isProjectSkillPath(skillPath) ? `/${skillName}` : `/oh-my-claudecode:${skillName}`;
 }
 
 function resolveSkillPath(skillName) {
@@ -147,6 +171,14 @@ function extractPrompt(input) {
 
 function isExplicitAskSlashInvocation(prompt) {
   return /^\s*\/(?:oh-my-claudecode:)?ask\s+(?:claude|codex|gemini|grok)\b/i.test(prompt);
+}
+
+// CHANGE 2: explicit, prompt-LEADING slash invocation for a given mode. Anchored
+// to start-of-prompt (no `m` flag) so a slash command quoted on an interior
+// log/transcript line does NOT count as an explicit invocation.
+function isExplicitModeSlashInvocation(prompt, mode) {
+  const re = new RegExp(`^\\s*/(?:oh-my-claudecode:)?${mode}(?:\\s|$)`, 'i');
+  return re.test(prompt);
 }
 
 // Sanitize text to prevent false positives from code blocks, XML tags, URLs, and file paths
@@ -509,7 +541,10 @@ function hasActivationIntentNearKeyword(context, keyword) {
   if (!escaped) return false;
 
   const patterns = [
-    new RegExp(`\\b(?:use|run|start|enable|activate|invoke|trigger|launch)\\b[^\\n]{0,28}\\b${escaped}\\b`, 'i'),
+    // Reject descriptive/narrative lead-ins ("when i use X", "the command to run … X",
+    // "how do i use X"): those are not imperative activations. Imperative forms
+    // ("use X", "please run X", "then start X", "can you run X") still match.
+    new RegExp(`(?<!\\b(?:i|we|they|he|she|it|to|when|whenever|if|whether|how|why|that|which|sometimes|often|usually|typically|normally|always|never|rarely|occasionally|generally|frequently)\\s{1,4})\\b(?:use|run|start|enable|activate|invoke|trigger|launch)\\b[^\\n]{0,28}\\b${escaped}\\b`, 'i'),
     new RegExp(`\\b(?:fix|debug|investigate|resolve|handle|patch|address)\\b[^\\n]{0,28}\\b(?:issue|bug|problem|error)\\b[^\\n]{0,12}\\b(?:with|in)\\s+\\b${escaped}\\b`, 'i'),
 
   ];
@@ -786,7 +821,7 @@ Arguments: ${args}` : '';
   return `[MAGIC KEYWORD: ${skillName.toUpperCase()}]
 
 Skill routing detected: ${skillName}
-Preferred invocation: /oh-my-claudecode:${skillName}${args ? ` ${args}` : ''}
+Preferred invocation: ${preferredSkillInvocation(skillName, skillPath)}${args ? ` ${args}` : ''}
 ${pathStatus}${argsSection}
 
 User request (compact echo; original prompt remains authoritative):
@@ -811,7 +846,7 @@ function createMultiSkillInvocation(skills, originalPrompt) {
       ? `Read fallback: ${skillPath}`
       : `Read fallback: locate skills/${s.name}/SKILL.md in the active oh-my-claudecode plugin/install`;
     return `### Skill ${i + 1}: ${s.name.toUpperCase()}
-Preferred invocation: /oh-my-claudecode:${s.name}${argsText}
+Preferred invocation: ${preferredSkillInvocation(s.name, skillPath)}${argsText}
 ${pathStatus}`;
   }).join('\n\n');
 
@@ -946,6 +981,25 @@ async function main() {
 
     const cleanPrompt = sanitizeForKeywordDetection(prompt).toLowerCase();
 
+    // CHANGE 2: when the prompt as a whole looks like a pasted system echo /
+    // transcript, only allow persistent-STATE-creating modes (ralph, autopilot,
+    // ultrawork, ralplan) to auto-activate via an explicit, prompt-leading slash
+    // invocation. Prevents phantom modes from pasted logs.
+    const promptIsSystemEcho = looksLikeSystemEcho(prompt);
+    // True superset of upstream echo handling: when the raw prompt looks like a
+    // pasted system echo, still allow activation when a genuine request SURVIVES
+    // echo stripping (non-empty residue that no longer looks like an echo) —
+    // mirrors sanitizePromptForState. Only suppress when stripping leaves nothing
+    // genuine, so a messy interleaved paste can't arm a phantom mode while a real
+    // "<echo> + ralph <task>" prompt still activates.
+    const echoStrippedResidue = stripSystemEchoes(prompt).trim();
+    const hasGenuineResidualRequest =
+      echoStrippedResidue.length > 0 && !looksLikeSystemEcho(echoStrippedResidue);
+    const allowStateModeActivation = (mode) =>
+      !promptIsSystemEcho ||
+      isExplicitModeSlashInvocation(prompt, mode) ||
+      hasGenuineResidualRequest;
+
     // Collect all matching keywords
     const matches = [];
 
@@ -955,12 +1009,12 @@ async function main() {
     }
 
     // Ralph keywords
-    if (hasActionableKeyword(cleanPrompt, /\b(ralph)\b|(랄프)(?!로렌)|(ラルフ)(?!・?ローレン)/i)) {
+    if (allowStateModeActivation('ralph') && hasActionableKeyword(cleanPrompt, /\b(ralph)\b|(랄프)(?!로렌)|(ラルフ)(?!・?ローレン)/i)) {
       matches.push({ name: 'ralph', args: '' });
     }
 
     // Autopilot keywords
-    if (hasActionableKeyword(cleanPrompt, /\b(autopilot|auto[\s-]?pilot|fullsend|full\s+auto)\b|(오토파일럿)|(オートパイロット)/i)) {
+    if (allowStateModeActivation('autopilot') && hasActionableKeyword(cleanPrompt, /\b(autopilot|auto[\s-]?pilot|fullsend|full\s+auto)\b|(오토파일럿)|(オートパイロット)/i)) {
       matches.push({ name: 'autopilot', args: '' });
     }
 
@@ -968,7 +1022,7 @@ async function main() {
     // This prevents infinite spawning when Claude workers receive prompts containing "team".
 
     // Ultrawork keywords
-    if (hasActionableKeyword(cleanPrompt, /\b(ultrawork|ulw)\b|(울트라워크)|(ウルトラワーク)/i)) {
+    if (allowStateModeActivation('ultrawork') && hasActionableKeyword(cleanPrompt, /\b(ultrawork|ulw)\b|(울트라워크)|(ウルトラワーク)/i)) {
       matches.push({ name: 'ultrawork', args: '' });
     }
 
@@ -979,7 +1033,7 @@ async function main() {
     }
 
     // Ralplan keyword
-    if (hasActionableRalplanKeyword(cleanPrompt, /\b(ralplan)\b|(랄플랜)|(ラルプラン)/i)) {
+    if (allowStateModeActivation('ralplan') && hasActionableRalplanKeyword(cleanPrompt, /\b(ralplan)\b|(랄플랜)|(ラルプラン)/i)) {
       matches.push({ name: 'ralplan', args: '' });
     }
 

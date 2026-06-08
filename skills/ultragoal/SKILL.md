@@ -51,6 +51,14 @@ Claude Code `/goal` is a session-scoped Stop hook: it blocks the session from st
    the same `--plan-id <id>` through every subsequent subcommand in that session.
    Use `omc ultragoal list-plans` to enumerate available planIds when needed.
 
+   **MANDATORY — surface the `/goal` handoff.** In aggregate mode, `create-goals`
+   prints an `ACTION REQUIRED` block ending in a literal `/goal <objective>` line.
+   You MUST relay that exact `/goal <objective>` line to the user verbatim before
+   doing anything else, and set the active Claude `/goal` for the session. Do not
+   summarize it, omit it, or defer it to a later `complete-goals` step — the durable
+   ledger and the `/goal` Stop-hook guard only stay in sync if the `/goal` is set now.
+   (The same literal line is also emitted by every `complete-goals` handoff.)
+
 2. Start (or resume) the next story:
    ```
    omc ultragoal complete-goals

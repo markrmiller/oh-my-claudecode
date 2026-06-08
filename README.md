@@ -2,93 +2,49 @@ English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](READM
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
-[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/sj4exxQ9v)
-
-> **For Codex users:** Check out [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) — the same orchestration experience for OpenAI Codex CLI.
 
 **Multi-agent orchestration for Claude Code. Zero learning curve.**
 
 _Don't learn Claude Code. Just use OMC._
 
-[Get Started](#quick-start) • [Documentation](https://yeachan-heo.github.io/oh-my-claudecode-website) • [CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#cli-reference) • [Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#workflows) • [Migration Guide](docs/MIGRATION.md) • [Discord](https://discord.gg/sj4exxQ9v)
+[Get Started](#quick-start) • [Full Reference](docs/REFERENCE.md) • [Migration Guide](docs/MIGRATION.md) • [Architecture](docs/ARCHITECTURE.md)
 
 ---
 
-## Core Maintainers
-
-| Role           | Name        | GitHub                                         |
-| -------------- | ----------- | ---------------------------------------------- |
-| Creator & Lead | Yeachan Heo | [@Yeachan-Heo](https://github.com/Yeachan-Heo) |
-
-## Ambassadors
-
-| Name       | GitHub                                           |
-| ---------- | ------------------------------------------------ |
-| Sigrid Jin | [@sigridjineth](https://github.com/sigridjineth) |
-
-## Document Specialists
-
-| Name    | GitHub                                 |
-| ------- | -------------------------------------- |
-| devswha | [@devswha](https://github.com/devswha) |
-
-## Top Collaborators
-
-| Name           | GitHub                                         | Commits |
-| -------------- | ---------------------------------------------- | ------- |
-| JunghwanNA     | [@shaun0927](https://github.com/shaun0927)     | 65      |
-| riftzen-bit    | [@riftzen-bit](https://github.com/riftzen-bit) | 52      |
-| Seunggwan Song | [@Nathan-Song](https://github.com/Nathan-Song) | 20      |
-| BLUE           | [@blue-int](https://github.com/blue-int)       | 20      |
-| Junho Yeo      | [@junhoyeo](https://github.com/junhoyeo)       | 15      |
-
 ## Quick Start
 
-**Step 1: Install**
+**Step 1: Install (from a local checkout)**
 
-Marketplace/plugin install (recommended for most Claude Code users).
-These are Claude Code slash commands — enter them **one at a time** (pasting both lines at once will fail):
-
-```bash
-/plugin marketplace add https://github.com/Yeachan-Heo/oh-my-claudecode
-```
-
-Then:
+This fork is run directly from a local checkout — there is no published npm package or marketplace listing.
 
 ```bash
-/plugin install oh-my-claudecode
+# Clone this repo
+git clone https://github.com/markrmiller/oh-my-claudecode.git
+cd oh-my-claudecode
+
+# Install dependencies and build the plugin + CLI
+npm install
+npm run build
+
+# Expose the `omc` command from the checkout (ensure ~/.local/bin is on your PATH)
+mkdir -p ~/.local/bin
+ln -sf "$PWD/bridge/cli.cjs" ~/.local/bin/omc
+omc --version
 ```
-
-If you prefer the npm CLI/runtime path instead of the marketplace flow:
-
-```bash
-npm i -g oh-my-claude-sisyphus@latest
-```
-
-> **Known npm warning:** npm may print `deprecated prebuild-install@7.1.3` during the CLI install.
-> This currently comes from the upstream `better-sqlite3` native-addon dependency
-> (`better-sqlite3 -> prebuild-install`); `prebuild-install@7.1.3` is still the latest
-> published version, so there is no safe repo-side dependency bump or override to remove
-> the warning yet. The warning is tracked in [#2913](https://github.com/Yeachan-Heo/oh-my-claudecode/issues/2913)
-> and does not by itself mean the OMC CLI install failed.
 
 **Step 2: Setup**
 
-```bash
-# Inside a Claude Code / OMC session
-/setup
-/omc-setup
+Point Claude Code at your local checkout and run setup in one step:
 
-# From your terminal
-omc setup
+```bash
+# From the checkout directory
+omc --plugin-dir "$PWD" setup --plugin-dir-mode
 ```
 
-If you run OMC via `omc --plugin-dir <path>` or `claude --plugin-dir <path>`, add `--plugin-dir-mode` to `omc setup` (or export `OMC_PLUGIN_ROOT` before running it) so the installer doesn't duplicate skills/agents that the plugin already provides at runtime. See the [Plugin directory flags section in REFERENCE.md](./docs/REFERENCE.md#plugin-directory-flags) for a complete decision matrix and all available flags.
+Then launch Claude Code normally — it will use your local checkout. Inside a session you can also re-run `/setup` or `/omc-setup`.
+
+> **`.mcp.json` server conflict:** with `--plugin-dir`, the repo's `.mcp.json` server named `"t"` collides with the plugin's own. Add `{ "disabledMcpjsonServers": ["t"] }` to your `~/.claude/settings.json`. See the [Plugin directory flags section in REFERENCE.md](./docs/REFERENCE.md#plugin-directory-flags) and [CONTRIBUTING.md](./CONTRIBUTING.md) for the full local-checkout flows.
 
 **Step 3: Build something**
 
@@ -106,7 +62,7 @@ That's it. Everything else is automatic.
 
 OMC exposes two different surfaces:
 
-- **Terminal CLI commands**: run `omc ...` from your shell after installing the npm/runtime path (`npm i -g oh-my-claude-sisyphus@latest`) or from a local checkout.
+- **Terminal CLI commands**: run `omc ...` from your shell using the `omc` symlink created from your local checkout (see Install above).
 - **In-session skills**: run `/...` inside a Claude Code session after installing the plugin/setup flow.
 
 | Feature                                        | Terminal CLI                                  | In-session skill                                                        | Notes                                                                                                                                |
@@ -185,37 +141,17 @@ Workers spawn on-demand and die when their task completes — no idle resource u
 
 Native team worker worktrees are being added behind an opt-in/config gate. See [Native Team Worktree Mode](docs/TEAM-WORKTREE-MODE.md) for the workspace contract, canonical state-root rules, dirty-worktree preservation policy, and verification checklist.
 
-> **Note: Package naming** — The project is branded as **oh-my-claudecode** (repo, plugin, commands), but the npm package is published as [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). If you install or upgrade the CLI tools via npm/bun, use `npm i -g oh-my-claude-sisyphus@latest`; the package installs both `oh-my-claudecode` and the short `omc` command aliases.
-
 ### Updating
 
-If you installed OMC via npm, upgrade with the published package name:
+Pull the latest changes, rebuild, and re-run setup from the checkout so the active runtime matches the code you are testing:
 
 ```bash
-npm i -g oh-my-claude-sisyphus@latest
+git pull
+npm run build
+omc setup --plugin-dir-mode
 ```
 
-> **Package naming note:** the repo, plugin, and commands are branded **oh-my-claudecode**, but the published npm package name remains `oh-my-claude-sisyphus`. npm installs expose both `oh-my-claudecode` and `omc`; examples prefer `omc` for brevity.
-
-If you installed OMC via the Claude Code marketplace/plugin flow, update with:
-
-```bash
-# 1. Update the marketplace clone
-/plugin marketplace update omc
-
-# 2. Re-run setup to refresh configuration
-/setup
-```
-
-If you are developing from a local checkout or git worktree, update the checkout first, then re-run setup from that worktree so the active runtime matches the code you are testing.
-
-> **Note:** If marketplace auto-update is not enabled, you must manually run `/plugin marketplace update omc` to sync the latest version before running setup.
-
-If you experience issues after updating, clear the old plugin cache:
-
-```bash
-/omc-doctor
-```
+If you experience issues after updating, run `/omc-doctor`.
 
 <h1 align="center">Your Claude Just Have been Steroided.</h1>
 
@@ -242,7 +178,7 @@ If you experience issues after updating, clear the old plugin cache:
 
 ### Orchestration Modes
 
-Multiple strategies for different use cases — from Team-backed orchestration to token-efficient refactoring. [Learn more →](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#execution-modes)
+Multiple strategies for different use cases — from Team-backed orchestration to token-efficient refactoring. [Learn more →](docs/REFERENCE.md)
 
 | Mode                        | What it is                                                                              | Use For                                                                 |
 | --------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -510,11 +446,6 @@ See `scripts/openclaw-gateway-demo.mjs` for a reference gateway that relays Open
 ## Documentation
 
 - **[Full Reference](docs/REFERENCE.md)** - Complete feature documentation
-- **[CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#cli-reference)** - All `omc` commands, flags, and tools
-- **[Notifications Guide](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#notifications)** - Discord, Telegram, Slack, and webhook setup
-- **[Recommended Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#workflows)** - Battle-tested skill chains for common tasks
-- **[Release Notes](https://yeachan-heo.github.io/oh-my-claudecode-website/docs/#release-notes)** - What's new in each version
-- **[Website](https://yeachan-heo.github.io/oh-my-claudecode-website)** - Interactive guides and examples
 - **[Migration Guide](docs/MIGRATION.md)** - Upgrade from v2.x
 - **[Architecture](docs/ARCHITECTURE.md)** - How it works under the hood
 - **[Performance Monitoring](docs/PERFORMANCE-MONITORING.md)** - Agent tracking, debugging, and optimization
@@ -565,52 +496,6 @@ MIT
 
 <div align="center">
 
-**Inspired by:** [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) • [claude-hud](https://github.com/ryanjoachim/claude-hud) • [Superpowers](https://github.com/obra/superpowers) • [everything-claude-code](https://github.com/affaan-m/everything-claude-code) • [Ouroboros](https://github.com/Q00/ouroboros)
-
 **Zero learning curve. Maximum power.**
 
 </div>
-
-<!-- OMC:FEATURED-CONTRIBUTORS:START -->
-## Featured by OmC Contributors
-
-Top personal non-fork, non-archived repos from all-time OMC contributors (100+ GitHub stars).
-
-- [@Yeachan-Heo](https://github.com/Yeachan-Heo) — [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) (⭐ 35k)
-- [@junhoyeo](https://github.com/junhoyeo) — [tokscale](https://github.com/junhoyeo/tokscale) (⭐ 3.2k)
-- [@psmux](https://github.com/psmux) — [psmux](https://github.com/psmux/psmux) (⭐ 2.1k)
-- [@BowTiedSwan](https://github.com/BowTiedSwan) — [buildflow](https://github.com/BowTiedSwan/buildflow) (⭐ 292)
-- [@alohays](https://github.com/alohays) — [awesome-visual-representation-learning-with-transformers](https://github.com/alohays/awesome-visual-representation-learning-with-transformers) (⭐ 269)
-- [@jcwleo](https://github.com/jcwleo) — [random-network-distillation-pytorch](https://github.com/jcwleo/random-network-distillation-pytorch) (⭐ 262)
-- [@MeroZemory](https://github.com/MeroZemory) — [ida-multi-mcp](https://github.com/MeroZemory/ida-multi-mcp) (⭐ 235)
-- [@shaun0927](https://github.com/shaun0927) — [openchrome](https://github.com/shaun0927/openchrome) (⭐ 210)
-- [@emgeee](https://github.com/emgeee) — [mean-tutorial](https://github.com/emgeee/mean-tutorial) (⭐ 200)
-- [@HaD0Yun](https://github.com/HaD0Yun) — [Doyunha-Gopeak](https://github.com/HaD0Yun/Doyunha-Gopeak) (⭐ 190)
-- [@anduinnn](https://github.com/anduinnn) — [HiFiNi-Auto-CheckIn](https://github.com/anduinnn/HiFiNi-Auto-CheckIn) (⭐ 171)
-- [@Znuff](https://github.com/Znuff) — [consolas-powerline](https://github.com/Znuff/consolas-powerline) (⭐ 146)
-
-<!-- OMC:FEATURED-CONTRIBUTORS:END -->
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Yeachan-Heo/oh-my-claudecode&type=date&legend=top-left)](https://www.star-history.com/#Yeachan-Heo/oh-my-claudecode&type=date&legend=top-left)
-
-## 💖 Support This Project
-
-If Oh-My-ClaudeCode helps your workflow, consider sponsoring:
-
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-❤️-red?style=for-the-badge&logo=github)](https://github.com/sponsors/Yeachan-Heo)
-
-### Why sponsor?
-
-- Keep development active
-- Priority support for sponsors
-- Influence roadmap & features
-- Help maintain free & open source
-
-### Other ways to help
-
-- ⭐ Star the repo
-- 🐛 Report bugs
-- 💡 Suggest features
-- 📝 Contribute code

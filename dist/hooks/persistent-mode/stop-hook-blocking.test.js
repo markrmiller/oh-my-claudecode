@@ -127,7 +127,9 @@ describe("Stop Hook Blocking Contract", () => {
             };
             const output = createHookOutput(result);
             expect(output.continue).toBe(false);
-            expect(output.message).toBe("Continue working");
+            // Block reasons now carry the shared agent/background-work guidance (CHANGE 1).
+            expect(output.message).toContain("Continue working");
+            expect(output.message).toContain("AGENT / BACKGROUND-WORK CHECK");
         });
         it("returns continue: true when shouldBlock is false", () => {
             const result = {

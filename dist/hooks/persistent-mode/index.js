@@ -320,6 +320,17 @@ Do NOT skip this step. Do NOT move on without fixing the error.
 
 `;
 }
+const AGENT_MONITOR_GUIDANCE = `
+
+[AGENT / BACKGROUND-WORK CHECK] If you have already spawned agents (via the Agent/Task tools) or started background tasks/commands that are still running, do NOT idle-loop by stopping repeatedly. Call the Monitor tool to wait for those agents/tasks to finish, then act on their results. Only treat the work as complete — and run /oh-my-claudecode:cancel — once those agents and background tasks have actually finished and you have acted on their output.`;
+/**
+ * Append the shared agent/background-work guidance to a block reason so every
+ * Stop-hook continuation message points the model at the Monitor tool instead
+ * of idle-looping while spawned agents / background tasks are still running.
+ */
+function appendAgentMonitorGuidance(reason) {
+    return `${reason}${AGENT_MONITOR_GUIDANCE}`;
+}
 /**
  * Get or increment todo-continuation attempt counter
  */
@@ -1754,9 +1765,14 @@ export async function checkPersistentModes(sessionId, directory, stopContext // 
  * Returns `continue: true` for terminal states, escape hatches, and errors.
  */
 export function createHookOutput(result) {
+    // Route every block reason through the shared guidance so the Stop-hook
+    // continuation message points the model at the Monitor tool (CHANGE 1).
+    const message = result.shouldBlock && result.message
+        ? appendAgentMonitorGuidance(result.message)
+        : (result.message || undefined);
     return {
         continue: !result.shouldBlock,
-        message: result.message || undefined
+        message
     };
 }
 //# sourceMappingURL=index.js.map

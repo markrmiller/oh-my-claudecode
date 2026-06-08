@@ -285,6 +285,34 @@ async function main() {
     }
   }
 
+  // CHANGE 5: redirect OMC's scoped agent calls to a project-local override.
+  // OMC invokes its agents as oh-my-claudecode:<name>, which always resolves to the
+  // bundled prompt (the scoped id is not shadowed by a project agent). When the
+  // current project ships a native override at .claude/agents/<name>.md, rewrite
+  // subagent_type to the bare <name> so Claude Code's project-scope precedence picks
+  // the override. Per-project (keyed on cwd); no global plugin edit.
+  if (toolName === 'Task' || toolName === 'Agent' || toolName === 'task' || toolName === 'agent') {
+    const agentToolInput = data.tool_input || data.toolInput || {};
+    const scopedType = typeof agentToolInput.subagent_type === 'string' ? agentToolInput.subagent_type : '';
+    const scopedMatch = scopedType.match(/^oh-my-claudecode:([a-z0-9-]+)$/i);
+    if (scopedMatch) {
+      const bareName = scopedMatch[1];
+      const directory = data.cwd || data.directory || process.cwd();
+      if (existsSync(path.join(directory, '.claude', 'agents', `${bareName}.md`))) {
+        console.log(JSON.stringify({
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'allow',
+            permissionDecisionReason: `[OMC AGENT OVERRIDE] Routing to project agent "${bareName}" (.claude/agents/${bareName}.md).`,
+            updatedInput: { ...agentToolInput, subagent_type: bareName },
+          },
+        }));
+        return;
+      }
+    }
+  }
+
   // Handle Bash tool separately - check for file modification patterns
   if (toolName === 'Bash' || toolName === 'bash') {
     const toolInput = data.tool_input || data.toolInput || {};

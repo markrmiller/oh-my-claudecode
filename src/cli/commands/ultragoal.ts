@@ -8,6 +8,7 @@ import {
 import {
   addUltragoalGoal,
   buildClaudeGoalInstruction,
+  buildClaudeGoalSetupHandoff,
   checkpointUltragoal,
   createUltragoalPlan,
   listUltragoalPlanIds,
@@ -183,7 +184,8 @@ export async function ultragoalCommand(args: string[]): Promise<void> {
         planId: readValue(rest, '--plan-id'),
         autoPlanId: hasFlag(rest, '--auto-plan-id'),
       });
-      if (json) printJson({ ok: true, plan, planId: plan.planId, summary: summarizeUltragoalPlan(plan) });
+      const setupHandoff = buildClaudeGoalSetupHandoff(plan);
+      if (json) printJson({ ok: true, plan, planId: plan.planId, summary: summarizeUltragoalPlan(plan), claudeGoalHandoff: setupHandoff || undefined });
       else {
         console.log(`ultragoal plan created: ${plan.goals.length} goal(s)`);
         if (plan.planId) console.log(`plan id: ${plan.planId}`);
@@ -193,6 +195,10 @@ export async function ultragoalCommand(args: string[]): Promise<void> {
         if (plan.planId) {
           console.log('');
           console.log(`Subsequent commands MUST pass --plan-id ${plan.planId} (or run in a workspace where this is the only plan).`);
+        }
+        if (setupHandoff) {
+          console.log('');
+          console.log(setupHandoff);
         }
       }
       return;

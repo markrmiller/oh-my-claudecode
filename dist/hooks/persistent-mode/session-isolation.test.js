@@ -267,7 +267,11 @@ describe("Persistent Mode Session Isolation (Issue #311)", () => {
             });
             expect(output.decision).toBe("block");
             expect(output.reason).toContain("AUTOPILOT");
-            expect(output.reason).not.toContain('/oh-my-claudecode:cancel');
+            // Legacy (unowned) autopilot state must not receive the session-owned cancel
+            // guidance. The generic "/oh-my-claudecode:cancel" reference now appears in the
+            // shared AGENT_MONITOR_GUIDANCE appended to every block reason (CHANGE 1), so we
+            // assert on the session-owned distinguishing phrase instead.
+            expect(output.reason).not.toContain("this session's autopilot state files");
         });
         it("should include cancel guidance only for session-owned autopilot state", () => {
             const sessionId = "session-autopilot-owned";

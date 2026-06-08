@@ -192,4 +192,11 @@ export declare function recordFinalReviewBlockers(cwd: string, options: RecordFi
     addedGoal: UltragoalItem;
 }>;
 export declare function buildClaudeGoalInstruction(goal: UltragoalItem, plan: UltragoalPlan): string;
+/**
+ * Create-time Claude /goal handoff. Printed right after `create-goals` so the
+ * literal `/goal <objective>` line is ALWAYS emitted at plan creation — not left
+ * to the model remembering to run `next` and compose the slash command. Aggregate
+ * mode only: per-story plans set their /goal per story via `next`.
+ */
+export declare function buildClaudeGoalSetupHandoff(plan: UltragoalPlan): string;
 //# sourceMappingURL=artifacts.d.ts.map

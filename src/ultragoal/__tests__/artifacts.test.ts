@@ -8,6 +8,7 @@ import { clearWorktreeCache } from '../../lib/worktree-paths.js';
 import {
   addUltragoalGoal,
   buildClaudeGoalInstruction,
+  buildClaudeGoalSetupHandoff,
   checkpointUltragoal,
   createUltragoalPlan,
   isUltragoalDone,
@@ -54,6 +55,40 @@ describe('ultragoal artifacts', () => {
 
       const ledger = await readFile(join(cwd, '.omc/ultragoal/ledger.jsonl'), 'utf-8');
       expect(ledger).toMatch(/"event":"plan_created"/);
+    });
+  });
+
+  it('emits a literal copy-pasteable /goal line at create time (aggregate) and in the handoff', async () => {
+    await withTempRepo(async (cwd) => {
+      const plan = await createUltragoalPlan(cwd, {
+        brief: 'brief',
+        goals: [
+          { title: 'First', objective: 'Complete first milestone.' },
+          { title: 'Second', objective: 'Complete second milestone.' },
+        ],
+      });
+
+      // Create-time setup handoff carries the exact slash command to run.
+      const setup = buildClaudeGoalSetupHandoff(plan);
+      expect(setup).toMatch(/ACTION REQUIRED/);
+      expect(setup).toContain(`/goal ${plan.claudeObjective}`);
+
+      // The per-story handoff also leads with the literal /goal action line.
+      const started = await startNextUltragoal(cwd);
+      const instruction = buildClaudeGoalInstruction(started.goal!, started.plan);
+      expect(instruction).toMatch(/^>>> ACTION REQUIRED/m);
+      expect(instruction).toContain(`/goal ${plan.claudeObjective}`);
+    });
+  });
+
+  it('does not emit a create-time aggregate /goal line for per-story plans', async () => {
+    await withTempRepo(async (cwd) => {
+      const plan = await createUltragoalPlan(cwd, {
+        brief: 'brief',
+        goals: [{ title: 'First', objective: 'Complete first milestone.' }],
+        claudeGoalMode: 'per_story',
+      });
+      expect(buildClaudeGoalSetupHandoff(plan)).toBe('');
     });
   });
 

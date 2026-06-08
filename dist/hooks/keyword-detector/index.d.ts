@@ -47,6 +47,43 @@ export declare function parseExplicitWorkflowSlashInvocation(promptText: string)
  */
 export declare function removeCodeBlocks(text: string): string;
 /**
+ * CHANGE 2: returns true when the prompt as a whole looks like a pasted system
+ * echo / transcript (a copied hook-output block). Mirrors looksLikeSystemEcho()
+ * in keyword-detector.mjs so state-creating modes do not auto-activate from
+ * pasted logs.
+ */
+export declare function looksLikeSystemEcho(text: string): boolean;
+/**
+ * CHANGE 2: remove recognized echo blocks, leaving any genuine surrounding text.
+ * Mirrors stripSystemEchoes() in keyword-detector.mjs so the activation gate can
+ * tell a pure paste (suppress) from "<echo> + real request" (still activate).
+ */
+export declare function stripSystemEchoes(text: string): string;
+/**
+ * CHANGE 2: explicit, prompt-LEADING slash invocation for a given mode. Anchored
+ * to start-of-prompt (no `m` flag) so a slash command quoted on an interior
+ * log/transcript line does NOT count as an explicit invocation.
+ */
+export declare function isExplicitModeSlashInvocation(prompt: string, mode: string): boolean;
+/** Project roots that may carry OMC skill overrides. */
+export declare function getProjectOverrideRoots(): string[];
+/**
+ * Skill-path candidates in precedence order: project `.claude/omc-skills`
+ * overrides FIRST, then bundled plugin `skills/` roots.
+ */
+export declare function getSkillPathCandidates(skillName: string): string[];
+/**
+ * A resolved skill is a project override when it lives under
+ * {root}/.claude/omc-skills/. Such skills resolve via the UNQUALIFIED slash form.
+ */
+export declare function isProjectSkillPath(skillPath: string): boolean;
+/**
+ * Preferred slash-invocation for a skill: the UNQUALIFIED `/<skill>` form for
+ * project overrides (so Claude Code resolves the project entry), otherwise the
+ * plugin-scoped `/oh-my-claudecode:<skill>` form.
+ */
+export declare function preferredSkillInvocation(skillName: string, skillPath: string): string;
+/**
  * Regex matching non-Latin script characters for prompt translation detection.
  * Uses Unicode script ranges (not raw non-ASCII) to avoid false positives on emoji and accented Latin.
  * Covers: CJK (Japanese/Chinese), Korean, Cyrillic, Arabic, Devanagari, Thai, Myanmar.

@@ -132,6 +132,14 @@ Do NOT skip this step. Do NOT move on without fixing the error.
 `;
 }
 
+const AGENT_MONITOR_GUIDANCE = `
+
+[AGENT / BACKGROUND-WORK CHECK] If you have already spawned agents (via the Agent/Task tools) or started background tasks/commands that are still running, do NOT idle-loop by stopping repeatedly. Call the Monitor tool to wait for those agents/tasks to finish, then act on their results. Only treat the work as complete — and run /oh-my-claudecode:cancel — once those agents and background tasks have actually finished and you have acted on their output.`;
+
+function emitBlock(reason) {
+  console.log(JSON.stringify({ continue: false, decision: "block", reason: `${reason}${AGENT_MONITOR_GUIDANCE}` }));
+}
+
 /**
  * Staleness threshold for mode states (2 hours in milliseconds).
  * States older than this are treated as inactive to prevent stale state
@@ -903,13 +911,7 @@ async function main() {
             reason = errorGuidance + reason;
           }
 
-          console.log(
-            JSON.stringify({
-              continue: false,
-              decision: "block",
-              reason,
-            }),
-          );
+          emitBlock(reason);
           return;
         }
 
@@ -923,13 +925,7 @@ async function main() {
         }
         writeJsonFile(ralph.path, ralph.state);
 
-        console.log(
-          JSON.stringify({
-            continue: false,
-            decision: "block",
-            reason: `[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`,
-          }),
-        );
+        emitBlock(`[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`);
         return;
       }
     }
@@ -963,13 +959,7 @@ async function main() {
               reason = errorGuidance + reason;
             }
 
-            console.log(
-              JSON.stringify({
-                continue: false,
-                decision: "block",
-                reason,
-              }),
-            );
+            emitBlock(reason);
             return;
           }
         }
@@ -1004,13 +994,7 @@ async function main() {
             reason = errorGuidance + reason;
           }
 
-          console.log(
-            JSON.stringify({
-              continue: false,
-              decision: "block",
-              reason,
-            }),
-          );
+          emitBlock(reason);
           return;
         }
       }
@@ -1041,13 +1025,7 @@ async function main() {
             reason = errorGuidance + reason;
           }
 
-          console.log(
-            JSON.stringify({
-              continue: false,
-              decision: "block",
-              reason,
-            }),
-          );
+          emitBlock(reason);
           return;
         }
       }
@@ -1079,13 +1057,7 @@ async function main() {
             reason = errorGuidance + reason;
           }
 
-          console.log(
-            JSON.stringify({
-              continue: false,
-              decision: "block",
-              reason,
-            }),
-          );
+          emitBlock(reason);
           return;
         }
       }
@@ -1117,13 +1089,7 @@ async function main() {
               reason = errorGuidance + reason;
             }
 
-            console.log(
-              JSON.stringify({
-                continue: false,
-                decision: "block",
-                reason,
-              }),
-            );
+            emitBlock(reason);
             return;
           }
         }
@@ -1154,13 +1120,7 @@ async function main() {
           reason = errorGuidance + reason;
         }
 
-        console.log(
-          JSON.stringify({
-            continue: false,
-            decision: "block",
-            reason,
-          }),
-        );
+        emitBlock(reason);
         return;
       }
     }
@@ -1228,7 +1188,7 @@ async function main() {
         reason = errorGuidance + reason;
       }
 
-      console.log(JSON.stringify({ continue: false, decision: "block", reason }));
+      emitBlock(reason);
       return;
     }
 
@@ -1271,7 +1231,7 @@ async function main() {
             reason = errorGuidance + reason;
           }
 
-          console.log(JSON.stringify({ continue: false, decision: "block", reason }));
+          emitBlock(reason);
           return;
         } else {
           // Reinforcement limit reached - clear state and allow stop

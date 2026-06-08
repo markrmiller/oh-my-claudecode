@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { ClaudeGoalSnapshotError, formatClaudeGoalReconciliation, readClaudeGoalSnapshotInput, reconcileClaudeGoalSnapshot, } from '../../goal-workflows/claude-goal-snapshot.js';
-import { addUltragoalGoal, buildClaudeGoalInstruction, checkpointUltragoal, createUltragoalPlan, listUltragoalPlanIds, readUltragoalPlan, recordFinalReviewBlockers, resolveActivePlanId, startNextUltragoal, summarizeUltragoalPlan, UltragoalError, } from '../../ultragoal/artifacts.js';
+import { addUltragoalGoal, buildClaudeGoalInstruction, buildClaudeGoalSetupHandoff, checkpointUltragoal, createUltragoalPlan, listUltragoalPlanIds, readUltragoalPlan, recordFinalReviewBlockers, resolveActivePlanId, startNextUltragoal, summarizeUltragoalPlan, UltragoalError, } from '../../ultragoal/artifacts.js';
 export const ULTRAGOAL_HELP = `omc ultragoal - Durable repo-native multi-goal workflow with Claude Code /goal handoff
 
 Usage:
@@ -167,8 +167,9 @@ export async function ultragoalCommand(args) {
                 planId: readValue(rest, '--plan-id'),
                 autoPlanId: hasFlag(rest, '--auto-plan-id'),
             });
+            const setupHandoff = buildClaudeGoalSetupHandoff(plan);
             if (json)
-                printJson({ ok: true, plan, planId: plan.planId, summary: summarizeUltragoalPlan(plan) });
+                printJson({ ok: true, plan, planId: plan.planId, summary: summarizeUltragoalPlan(plan), claudeGoalHandoff: setupHandoff || undefined });
             else {
                 console.log(`ultragoal plan created: ${plan.goals.length} goal(s)`);
                 if (plan.planId)
@@ -179,6 +180,10 @@ export async function ultragoalCommand(args) {
                 if (plan.planId) {
                     console.log('');
                     console.log(`Subsequent commands MUST pass --plan-id ${plan.planId} (or run in a workspace where this is the only plan).`);
+                }
+                if (setupHandoff) {
+                    console.log('');
+                    console.log(setupHandoff);
                 }
             }
             return;
